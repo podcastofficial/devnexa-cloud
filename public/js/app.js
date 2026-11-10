@@ -30,6 +30,8 @@
     return data;
   }
 
+  window.DevNexa = { api: (p, o) => api(p, o), showError, showNotice };
+
   async function login() {
     if (!tg?.initData) throw new Error("Please open DevNexa Cloud from its Telegram bot menu button. Browser preview login is disabled for security.");
     const data = await api("/api/auth/telegram", {
