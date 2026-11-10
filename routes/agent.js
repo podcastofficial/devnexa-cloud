@@ -6,7 +6,8 @@ const { runChat } = require("../lib/ai/gateway");
 
 // Agent needs room for several files; the plan cap (free = 800 tokens) used to cut the JSON in half.
 const AGENT_MAX_OUTPUT = 3500;
-const AGENT_TIMEOUT_MS = 25000;
+const AGENT_TIMEOUT_MS = 18000;   // ek provider ke liye max
+const AGENT_TOTAL_MS = 48000;     // sab providers mila ke max (Vercel limit 60s, browser 58s)
 
 // Plain-text file blocks are far more reliable than JSON-with-HTML-inside (no escaping problems, easy to recover if cut off):
 //   ===FILE: index.html===
@@ -91,7 +92,7 @@ module.exports = async function agentRoutes({ req, res, path, method, user }) {
         messages: [{ role: "user", content: buildPrompt(body.prompt.trim()) }],
         mode: "platform",
         max_tokens: AGENT_MAX_OUTPUT
-      }, { maxOutput: AGENT_MAX_OUTPUT, timeoutMs: AGENT_TIMEOUT_MS });
+      }, { maxOutput: AGENT_MAX_OUTPUT, timeoutMs: AGENT_TIMEOUT_MS, deadline: Date.now() + AGENT_TOTAL_MS });
 
       const raw = String(aiResponse.message.content || "").trim();
       const files = extractFiles(raw);
