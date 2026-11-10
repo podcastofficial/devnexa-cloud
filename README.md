@@ -96,3 +96,70 @@ Import the repository in Vercel, add environment variables, and deploy.
 - GitHub URL is stored as project metadata only; deployment is not implemented yet.
 - VPS, domain registration, managed database provisioning and payment processing are future phases.
 - Admin panel currently provides read-only statistics and user listing.
+
+
+## GitHub OAuth integration (Phase 1 extension)
+
+### Required Neon migration
+
+Run `database/github-oauth.sql` once in Neon SQL Editor. This is additive and does not modify or delete existing user/project data.
+
+### Create a GitHub OAuth App
+
+In GitHub: Settings → Developer settings → OAuth Apps → New OAuth App.
+
+Use:
+- Application name: DevNexa Cloud
+- Homepage URL: your deployed DevNexa Cloud HTTPS URL
+- Authorization callback URL: `https://YOUR-DEPLOYMENT-DOMAIN/api/github/callback`
+
+The callback URL must exactly match `GITHUB_CALLBACK_URL` in Vercel.
+
+### Generate encryption key
+
+Generate a 32-byte key encoded as Base64. For example, in Node.js:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+Keep the output private. If you lose or change this key, existing encrypted GitHub tokens cannot be decrypted; users will need to reconnect GitHub.
+
+### Add Vercel environment variables
+
+- `GITHUB_CLIENT_ID`: OAuth App client ID
+- `GITHUB_CLIENT_SECRET`: OAuth App client secret
+- `GITHUB_CALLBACK_URL`: exact callback URL above
+- `GITHUB_TOKEN_ENCRYPTION_KEY`: Base64-encoded 32-byte key
+
+Never put the client secret or encryption key in frontend code or GitHub.
+
+### OAuth permission scope and current limitation
+
+This first OAuth integration requests `read:user` only and lists public repositories visible to the authenticated account. Private repositories are intentionally not requested in this version. For private repository access and production-grade least-privilege repository permissions, implement a GitHub App with explicit read-only Contents/Metadata permissions in a later iteration.
+
+### User flow
+
+1. User opens Profile in the Telegram Mini App.
+2. Selects Connect GitHub.
+3. GitHub authorization opens.
+4. GitHub redirects to `/api/github/callback`.
+5. The backend validates one-time state, exchanges the code, fetches GitHub identity and encrypts the access token using AES-256-GCM.
+6. User returns to DevNexa Cloud and opens Profile again.
+7. Open a project → Details → select a public repository → Connect selected repository.
+
+The callback completes in the browser opened by Telegram. Depending on Telegram/device behavior, the user may need to return to the Telegram chat and reopen the Mini App after authorization.
+
+### Added API routes
+
+| Method | Route | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/github/callback` | OAuth state | Complete GitHub OAuth |
+| GET | `/api/github/connect` | Bearer | Start OAuth and return authorization URL |
+| GET | `/api/github/status` | Bearer | Show connected GitHub account |
+| GET | `/api/github/repos` | Bearer | List public repositories |
+| POST | `/api/github/disconnect` | Bearer | Remove stored GitHub connection |
+| GET | `/api/projects/:id` | Bearer | Project details |
+| POST | `/api/projects/:id/connect-repo` | Bearer | Attach selected public repository |
+
+GitHub connection stores an encrypted OAuth token server-side. The raw token is never returned to the frontend. This integration links repositories only; automatic builds/deployments are a separate Phase 2 feature.
