@@ -3,11 +3,12 @@ const { send, readBody } = require("../lib/http");
 const { verifyTelegramInitData } = require("../lib/telegram");
 const { createSession, bearerToken, audit } = require("../lib/auth");
 const { hashToken } = require("../lib/crypto");
-const { rateLimit } = require("../lib/ratelimit");
+const { rateLimitStrict } = require("../lib/ratelimit");
 
 module.exports = async function authRoutes({ req, res, path, method }) {
   if (method === "POST" && path === "/api/auth/telegram") {
-    rateLimit(`auth:${req.headers["x-forwarded-for"] || "ip"}`, 20, 60_000);
+    const ip = req.headers["x-forwarded-for"] || req.headers["x-real-ip"] || "unknown";
+    await rateLimitStrict(`auth:${ip}`, 20, 60_000);
     const body = await readBody(req);
     const tg = verifyTelegramInitData(body.initData);
     const adminIds = (process.env.ADMIN_TELEGRAM_IDS || "").split(",").map(x => x.trim()).filter(Boolean);
