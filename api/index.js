@@ -6,6 +6,7 @@ const github = require("../routes/github");
 
 const authedRoutes = [
   github.authed,
+  require("../routes/agent"), // <--- NAYA ROUTE ADD KIYA
   require("../routes/providers"),
   require("../routes/deployments"),
   require("../routes/ai"),
@@ -17,7 +18,6 @@ async function runCleanup() {
   await sql`DELETE FROM sessions WHERE expires_at < NOW()`;
   await sql`DELETE FROM github_oauth_states WHERE expires_at < NOW()`;
   await sql`DELETE FROM rate_limits WHERE window_start < NOW() - INTERVAL '1 hour'`;
-  // Stale AI ledger rows older than 24h stay for analytics; only clear abandoned pending >2min via quota logic.
 }
 
 module.exports = async function handler(req, res) {
@@ -32,9 +32,9 @@ module.exports = async function handler(req, res) {
       await sql`SELECT 1`;
       return send(res, 200, { ok: true, service: "DevNexa Cloud API", phase: 4 });
     }
+    
     if (method === "GET" && path === "/api/github/callback") return void (await github.callback(ctx));
 
-    // Vercel Cron protected by CRON_SECRET (Authorization: Bearer <secret>).
     if (method === "GET" && path === "/api/cron/cleanup") {
       const secret = process.env.CRON_SECRET;
       if (!secret) return send(res, 503, { error: "CRON_SECRET not configured" });
