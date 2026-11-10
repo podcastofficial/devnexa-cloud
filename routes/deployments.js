@@ -2,7 +2,7 @@ const sql = require("../lib/db");
 const { send, readBody, getHeader, HttpError } = require("../lib/http");
 const { decryptProviderToken } = require("../lib/crypto");
 const { audit } = require("../lib/auth");
-const { rateLimit } = require("../lib/ratelimit");
+const { rateLimitStrict } = require("../lib/ratelimit");
 const { parseGitHubRepo, getUserGitHubToken } = require("../lib/github");
 const { toUserError, safeProviderProjectName, NAMES } = require("../lib/providers/request");
 const { normalizeStatus, projectStatusFor } = require("../lib/providers/status");
@@ -14,24 +14,30 @@ const UUID = "([0-9a-f-]{36})";
 module.exports = async function deploymentRoutes({ req, res, path, method, user }) {
   const deployMatch = path.match(new RegExp(`^/api/projects/${UUID}/deploy$`, "i"));
   if (method === "POST" && deployMatch) {
-    rateLimit(`deploy:${user.id}`, 6, 60_000);
+    await rateLimitStrict(`deploy:${user.id}`, 6, 60_000);
     const body = await readBody(req);
     const provider = body.provider;
     if (!DEPLOYABLE.includes(provider)) throw new HttpError(400, "Choose Vercel, Cloudflare Pages or Netlify.");
-    const branch = validBranch(body.branch);
-    const outputDir = validDir(body.output_dir);
-    const buildCommand = validBuildCommand(body.build_command);
-    if (outputDir === false) throw new HttpError(400, "Output folder is invalid (example: dist or public).");
-    if (buildCommand === false) throw new HttpError(400, "Build command contains unsupported characters.");
-    const idemKey = (getHeader(req, "idempotency-key") || "").slice(0, 100);
-    if (idemKey && !/^[A-Za-z0-9_-]{8,100}$/.test(idemKey)) throw new HttpError(400, "Invalid Idempotency-Key.");
 
-    const projects = await sql`SELECT id, name, github_repo FROM projects WHERE id = ${deployMatch[1]} AND user_id = ${user.id} AND deleted_at IS NULL LIMIT 1`;
+    const projects = await sql`SELECT id, name, github_repo, default_branch FROM projects WHERE id = ${deployMatch[1]} AND user_id = ${user.id} AND deleted_at IS NULL LIMIT 1`;
     if (!projects.length) throw new HttpError(404, "Project not found.");
     const project = projects[0];
     if (!project.github_repo) throw new HttpError(400, "Connect a GitHub repository to this project first.");
 
-    // Duplicate protection: same Idempotency-Key, or an identical deploy still in flight.
+    const branch = validBranch(body.branch?.trim() || project.default_branch || "main");
+    const outputDir = validDir(body.output_dir);
+    if (outputDir === false) throw new HttpError(400, "Output folder is invalid (example: dist or public).");
+
+    // Netlify deploy is static-only in this phase — build_command is not executed.
+    if (provider === "netlify" && body.build_command) {
+      throw new HttpError(400, "Netlify deploy uploads static files only and does not run a build command. Remove build_command or use Cloudflare Pages.");
+    }
+    const buildCommand = validBuildCommand(body.build_command);
+    if (buildCommand === false) throw new HttpError(400, "Build command contains unsupported characters.");
+
+    const idemKey = (getHeader(req, "idempotency-key") || "").slice(0, 100);
+    if (idemKey && !/^[A-Za-z0-9_-]{8,100}$/.test(idemKey)) throw new HttpError(400, "Invalid Idempotency-Key.");
+
     const dup = idemKey
       ? await sql`SELECT id, provider, provider_project_name, provider_deployment_id, deployment_url, branch, status, created_at FROM deployments WHERE user_id = ${user.id} AND idempotency_key = ${idemKey} LIMIT 1`
       : await sql`SELECT id, provider, provider_project_name, provider_deployment_id, deployment_url, branch, status, created_at FROM deployments
@@ -77,7 +83,7 @@ module.exports = async function deploymentRoutes({ req, res, path, method, user 
 
   const refreshMatch = path.match(new RegExp(`^/api/deployments/${UUID}/refresh$`, "i"));
   if (method === "POST" && refreshMatch) {
-    rateLimit(`refresh:${user.id}`, 30, 60_000);
+    await rateLimitStrict(`refresh:${user.id}`, 30, 60_000);
     const rows = await sql`
       SELECT d.*, pc.account_id, pc.encrypted_access_token, pc.token_iv, pc.token_tag
       FROM deployments d JOIN provider_connections pc ON pc.user_id = d.user_id AND pc.provider = d.provider
