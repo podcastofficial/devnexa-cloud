@@ -139,7 +139,11 @@ function decryptProviderToken(row) {
 }
 
 async function providerRequest(provider, path, token, options = {}) {
-  const base = provider === "vercel" ? "https://api.vercel.com" : "https://api.cloudflare.com/client/v4";
+  const base = provider === "vercel"
+    ? "https://api.vercel.com"
+    : provider === "cloudflare"
+      ? "https://api.cloudflare.com/client/v4"
+      : "https://api.netlify.com/api/v1";
   const response = await fetch(`${base}${path}`, {
     ...options,
     headers: {
@@ -154,7 +158,7 @@ async function providerRequest(provider, path, token, options = {}) {
   if (!ok) {
     const message = provider === "cloudflare"
       ? (data.errors || []).map(x => x.message).join("; ") || `Cloudflare API error (${response.status})`
-      : data.error?.message || data.message || `Vercel API error (${response.status})`;
+      : data.error?.message || data.message || `${provider === "netlify" ? "Netlify" : "Vercel"} API error (${response.status})`;
     const error = new Error(message);
     error.status = response.status;
     throw error;
@@ -474,17 +478,21 @@ module.exports = async function handler(req, res) {
       const provider = body.provider;
       const accessToken = typeof body.access_token === "string" ? body.access_token.trim() : "";
       const accountId = typeof body.account_id === "string" ? body.account_id.trim() : null;
-      if (!["vercel", "cloudflare"].includes(provider)) return send(res, 400, { error: "Choose Vercel or Cloudflare Pages." });
+      if (!["vercel", "cloudflare", "netlify"].includes(provider)) return send(res, 400, { error: "Choose a supported provider: Vercel, Cloudflare Pages, or Netlify." });
       if (accessToken.length < 12 || accessToken.length > 5000) return send(res, 400, { error: "Enter a valid provider API token." });
       let accountLabel = null;
       if (provider === "vercel") {
         const identity = await providerRequest("vercel", "/v2/user", accessToken);
         accountLabel = identity.user?.username || identity.user?.email || "Vercel account";
-      } else {
+      } else if (provider === "cloudflare") {
         if (!accountId || !/^[a-f0-9]{32}$/i.test(accountId)) return send(res, 400, { error: "Cloudflare Account ID must be 32 hexadecimal characters." });
         const verify = await providerRequest("cloudflare", "/user/tokens/verify", accessToken);
         if (verify.status !== "active") return send(res, 400, { error: "Cloudflare API token is not active." });
         accountLabel = `Cloudflare account ${accountId.slice(0, 8)}…`;
+      } else {
+        const identity = await providerRequest("netlify", "/user", accessToken);
+        accountLabel = identity.full_name || identity.email || identity.slug || "Netlify account";
+        if (identity.id) accountId = String(identity.id);
       }
       const encrypted = encryptProviderToken(accessToken);
       await sql`
@@ -505,7 +513,7 @@ module.exports = async function handler(req, res) {
 
     if (method === "POST" && path === "/api/providers/disconnect") {
       const body = await readBody(req);
-      if (!["vercel", "cloudflare"].includes(body.provider)) return send(res, 400, { error: "Invalid provider." });
+      if (!["vercel", "cloudflare", "netlify"].includes(body.provider)) return send(res, 400, { error: "Invalid provider." });
       await sql`DELETE FROM provider_connections WHERE user_id = ${user.id} AND provider = ${body.provider}`;
       await audit(user.id, "provider.disconnected", "provider", body.provider);
       return send(res, 200, { ok: true });
