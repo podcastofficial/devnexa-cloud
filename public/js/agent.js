@@ -24,22 +24,25 @@
     lib().clearError();
     
     try {
-      // Timeout set kiya taaki request atak na jaye
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 seconds timeout
-
+      // Request bhej rahe hain
       const response = await fetch("/api/agent/generate", {
         method: "POST",
         headers: { 
             "Content-Type": "application/json",
             "Authorization": `Bearer ${sessionStorage.getItem("devnexa_session")}`
         },
-        body: JSON.stringify({ prompt }),
-        signal: controller.signal
+        body: JSON.stringify({ prompt })
       });
-      clearTimeout(timeoutId);
 
-      const data = await response.json();
+      // Agar Vercel ne crash kiya (500), toh text padhenge
+      const textData = await response.text();
+      let data;
+      try {
+        data = JSON.parse(textData);
+      } catch (err) {
+        // Agar response JSON nahi hai (matlab server crash hua hai / timeout hua hai)
+        throw new Error(`Server crashed (Vercel Timeout). Try shorter prompt. Raw: ${textData.slice(0, 50)}`);
+      }
 
       if (!response.ok) {
         throw new Error(data.error || "Server error occurred");
@@ -49,6 +52,7 @@
         throw new Error("AI returned empty files.");
       }
 
+      // Output render karein
       $("agentResultLog").innerHTML = "";
       data.files.forEach(file => {
         const div = document.createElement("div");
@@ -72,11 +76,7 @@
 
       lib().showNotice("Code generated successfully!");
     } catch (e) {
-      if (e.name === 'AbortError') {
-        lib().showError("Request timed out. The AI is taking too long (Vercel 10s limit). Please try a shorter prompt.");
-      } else {
-        lib().showError(e.message);
-      }
+      lib().showError(e.message);
       $("agentResultLog").innerHTML = ""; 
     } finally {
       btn.disabled = false; 
