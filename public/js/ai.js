@@ -23,6 +23,7 @@
     if (status.platform.available) mode.append(new Option("Free models (limited)", "platform"));
     status.keys.forEach(k => mode.append(new Option(`My ${NAMES[k.provider] || k.provider} key (…${k.key_last4})`, `byok:${k.provider}`)));
     if (!mode.options.length) mode.append(new Option("No AI available — add your own key below", ""));
+    $("aiModelWrap").hidden = !mode.value.startsWith("byok:");
     if ([...mode.options].some(o => o.value === prev)) mode.value = prev;
 
     const sel = $("aiKeyProvider");
@@ -51,6 +52,8 @@
     catch (e) { lib().showError(e.message); }
   }
 
+  $("aiMode").addEventListener("change", () => { $("aiModelWrap").hidden = !$("aiMode").value.startsWith("byok:"); });
+
   $("aiBtn").addEventListener("click", () => {
     $("profilePanel").hidden = true; $("projectDetailPanel").hidden = true;
     $("aiPanel").hidden = false;
@@ -77,7 +80,8 @@
     if (!modeVal) return lib().showError("Add your own API key to use AI right now.");
     const btn = $("aiSendBtn");
     btn.disabled = true; btn.textContent = "Thinking…";
-    const body = modeVal.startsWith("byok:") ? { mode: "byok", provider: modeVal.slice(5) } : { mode: "platform" };
+    const model = $("aiModelInput").value.trim();
+    const body = modeVal.startsWith("byok:") ? { mode: "byok", provider: modeVal.slice(5), ...(model ? { model } : {}) } : { mode: "platform" };
     const next = [...history, { role: "user", content: text }];
     addMsg("user", text); $("aiInput").value = "";
     try {
