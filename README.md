@@ -190,3 +190,34 @@ Reads a public repo (optionally one folder such as `dist`/`public`) via the GitH
 
 ### Still unverified against live APIs (tested with mocks only)
 Run one real deploy per provider with a throwaway repo and token before calling any provider "supported".
+
+
+## Phase 3 — AI Gateway
+
+### Run migration (Neon SQL Editor, once)
+`database/phase3-ai-gateway.sql` → tables `ai_keys` (encrypted BYOK keys) and `usage_ledger` (metering only; **prompts/answers are not stored**).
+
+### Environment variables
+Free/platform models are used only for providers whose key is set (all optional):
+- `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`
+- `AI_PLATFORM_ORDER` — fallback order, default `groq,gemini,openrouter`
+- `AI_MODEL_GROQ`, `AI_MODEL_GEMINI`, `AI_MODEL_OPENROUTER`, `AI_MODEL_OPENAI`, `AI_MODEL_ANTHROPIC` — override default model names. **Free tiers and model names change; check each provider's current free-tier model and terms (including commercial use) before launch.**
+- `AI_TIMEOUT_MS` — per-provider timeout, default 20000 (`vercel.json` sets maxDuration 30).
+- BYOK keys reuse `PROVIDER_TOKEN_ENCRYPTION_KEY` (or `GITHUB_TOKEN_ENCRYPTION_KEY`).
+
+### Behaviour
+- **Platform mode:** tries providers in order, skips ones in cooldown, falls back on 429/5xx/timeouts/bad platform key. A failed request does not consume allowance.
+- **Quota (free / developer / pro):** 20 / 100 / 300 requests per day (UTC) and 60k / 600k / 2M tokens per month, max output 800 / 2000 / 4000 tokens. Reserved atomically per user (advisory lock) before the call, settled with real token counts after. Constants in `lib/ai/quota.js` — indicative only; set after measuring real costs.
+- **BYOK:** OpenAI, Anthropic, Groq, Gemini, OpenRouter. Key verified on save, AES-256-GCM encrypted, never returned (only last 4 chars). Not metered against the free allowance.
+- **Safety:** prompts containing obvious secrets (API keys, private keys, DB URLs) are rejected; fixed server-side system prompt treats user content as untrusted; provider errors are redacted of keys.
+
+### API
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/api/ai/status` | Platform availability, saved key providers, quota usage |
+| GET | `/api/ai/usage` | Last 20 ledger rows |
+| POST | `/api/ai/keys` | Verify + save BYOK key |
+| POST | `/api/ai/keys/remove` | Delete BYOK key |
+| POST | `/api/ai/chat` | `{mode: "platform"|"byok", provider?, messages[], max_tokens?}` |
+
+Non-streaming for now. Rate limits are in-memory per instance (move to a shared store before public launch).
