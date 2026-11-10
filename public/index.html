@@ -53,12 +53,29 @@
           <button class="text-btn" id="githubDisconnectBtn" type="button" hidden>Disconnect GitHub</button>
           <div class="provider-setup">
             <p class="eyebrow">HOSTING PROVIDERS</p><h4>Connect deployment accounts</h4>
-            <label>Provider<select id="providerChoice"><option value="vercel">Vercel</option><option value="cloudflare">Cloudflare Pages</option></select></label>
+            <label>Provider<select id="providerChoice"><option value="vercel">Vercel</option><option value="cloudflare">Cloudflare Pages</option><option value="netlify">Netlify</option></select></label>
             <label>API token<input id="providerToken" type="password" autocomplete="off" placeholder="Paste provider API token"></label>
             <label id="cloudflareAccountWrap" hidden>Cloudflare Account ID<input id="cloudflareAccountId" autocomplete="off" placeholder="32-character account ID"></label>
             <button class="primary full" id="saveProviderBtn" type="button">Connect provider</button>
             <div id="providerList" class="provider-list"></div>
-            <p class="muted tiny">Tokens are encrypted on the server. Use a dedicated least-privilege token and never share it in chat.</p>
+            <p class="muted tiny">Vercel, Cloudflare Pages and Netlify connections are verified and encrypted on the server. Use dedicated least-privilege tokens and never share them in chat.</p>
+            <div class="provider-catalog">
+              <p class="eyebrow">MORE PROVIDERS</p>
+              <div class="provider-catalog-grid">
+                <div class="provider-catalog-item"><strong>Render</strong><span>Coming soon</span></div>
+                <div class="provider-catalog-item"><strong>Railway</strong><span>Coming soon</span></div>
+                <div class="provider-catalog-item"><strong>Fly.io</strong><span>Coming soon</span></div>
+                <div class="provider-catalog-item"><strong>DigitalOcean</strong><span>Coming soon</span></div>
+                <div class="provider-catalog-item"><strong>Hostinger VPS</strong><span>Coming soon</span></div>
+                <div class="provider-catalog-item"><strong>Hetzner</strong><span>Coming soon</span></div>
+                <div class="provider-catalog-item"><strong>AWS</strong><span>Coming soon</span></div>
+                <div class="provider-catalog-item"><strong>Google Cloud</strong><span>Coming soon</span></div>
+                <div class="provider-catalog-item"><strong>Neon</strong><span>Coming soon</span></div>
+                <div class="provider-catalog-item"><strong>Supabase</strong><span>Coming soon</span></div>
+                <div class="provider-catalog-item"><strong>MongoDB Atlas</strong><span>Coming soon</span></div>
+                <div class="provider-catalog-item"><strong>PlanetScale</strong><span>Coming soon</span></div>
+              </div>
+            </div>
           </div>
         </section>
         <section class="panel feature-panel" id="projectDetailPanel" hidden>
