@@ -51,6 +51,15 @@
             <button class="secondary" id="githubConnectBtn" type="button">Connect GitHub</button>
           </div>
           <button class="text-btn" id="githubDisconnectBtn" type="button" hidden>Disconnect GitHub</button>
+          <div class="provider-setup">
+            <p class="eyebrow">HOSTING PROVIDERS</p><h4>Connect deployment accounts</h4>
+            <label>Provider<select id="providerChoice"><option value="vercel">Vercel</option><option value="cloudflare">Cloudflare Pages</option></select></label>
+            <label>API token<input id="providerToken" type="password" autocomplete="off" placeholder="Paste provider API token"></label>
+            <label id="cloudflareAccountWrap" hidden>Cloudflare Account ID<input id="cloudflareAccountId" autocomplete="off" placeholder="32-character account ID"></label>
+            <button class="primary full" id="saveProviderBtn" type="button">Connect provider</button>
+            <div id="providerList" class="provider-list"></div>
+            <p class="muted tiny">Tokens are encrypted on the server. Use a dedicated least-privilege token and never share it in chat.</p>
+          </div>
         </section>
         <section class="panel feature-panel" id="projectDetailPanel" hidden>
           <div class="section-head"><div><p class="eyebrow">PROJECT DETAILS</p><h3 id="detailProjectName">Project</h3></div><button class="icon-btn" id="closeDetails" type="button" aria-label="Close">✕</button></div>
@@ -65,6 +74,13 @@
               <select id="repoSelect"><option value="">Connect GitHub and load repositories</option></select>
             </label>
             <button class="primary full" id="connectRepoBtn" type="button">Connect selected repository</button>
+          </div>
+          <div class="deploy-panel">
+            <p class="eyebrow">DEPLOYMENT</p><h4>Deploy this project</h4>
+            <label>Hosting provider<select id="deployProvider"><option value="vercel">Vercel</option><option value="cloudflare">Cloudflare Pages</option></select></label>
+            <label>Git branch<input id="deployBranch" value="main" maxlength="120" placeholder="main"></label>
+            <button class="primary full" id="deployProjectBtn" type="button">Deploy project</button>
+            <div id="deploymentHistory" class="deployment-history"></div>
           </div>
         </section>
         <div id="noticeBox" class="flash success" role="status" hidden></div>
@@ -87,7 +103,7 @@
             <button class="primary full" id="createProjectBtn" type="submit">Create project</button>
           </form>
         </section>
-        <p class="notice">Phase 1 preview: project management is active. Deployment, VPS and database provisioning will be added in later phases.</p>
+        <p class="notice">Phase 2: connect a hosting provider and deploy your GitHub project. VPS and managed database provisioning are planned for later phases.</p>
         <button id="logoutBtn" class="text-btn">Log out</button>
       </section>
       <div id="errorBox" class="error" hidden></div>
