@@ -4,6 +4,7 @@
   let token = sessionStorage.getItem("devnexa_session") || "";
   let currentUser = null;
   let submittingProject = false;
+  let selectedProjectId = null;
 
   if (tg) { tg.ready(); tg.expand(); }
 
@@ -90,8 +91,6 @@
     return el;
   }
 
-  let selectedProjectId = null;
-
   async function openProjectDetails(projectId) {
     clearError();
     try {
@@ -103,6 +102,7 @@
       $("detailProjectStatus").textContent = p.status;
       $("detailProjectDescription").textContent = p.description || "No description";
       $("detailRepo").textContent = p.github_repo || "Not connected";
+      if (p.default_branch) $("deployBranch").value = p.default_branch;
       $("projectDetailPanel").hidden = false;
       $("profilePanel").hidden = true;
       await loadGitHubReposIntoSelect();
@@ -164,7 +164,6 @@
       placeholder.textContent = e.message;
     }
   }
-
 
   async function loadProviderConnections() {
     const data = await api("/api/providers");
@@ -304,7 +303,6 @@
     }
   });
 
-
   $("profileBtn").addEventListener("click", async () => {
     clearError();
     $("projectDetailPanel").hidden = true;
@@ -360,16 +358,17 @@
         body: JSON.stringify({ full_name: fullName })
       });
       $("detailRepo").textContent = data.project.github_repo;
+      if (data.default_branch) $("deployBranch").value = data.default_branch;
       await loadProjects();
       showNotice(`Connected ${data.repository} to this project.`);
     } catch (e) { showError(e.message); }
     finally { button.disabled = false; button.textContent = "Connect selected repository"; }
   });
 
-
   $("providerChoice").addEventListener("change", () => {
     $("cloudflareAccountWrap").hidden = $("providerChoice").value !== "cloudflare";
   });
+
   $("saveProviderBtn").addEventListener("click", async () => {
     const button = $("saveProviderBtn");
     const provider = $("providerChoice").value;
@@ -386,15 +385,32 @@
     finally { button.disabled = false; button.textContent = "Connect provider"; }
   });
 
+  // Deploy panel UI toggles
+  $("deployProvider").addEventListener("change", () => {
+    const provider = $("deployProvider").value;
+    $("buildCommandWrap").hidden = provider !== "cloudflare";
+    $("netlifyHint").hidden = provider !== "netlify";
+  });
+
   $("deployProjectBtn").addEventListener("click", async () => {
     if (!selectedProjectId) return;
     const button = $("deployProjectBtn");
     button.disabled = true; button.textContent = "Starting deployment…"; clearError();
     try {
+      const provider = $("deployProvider").value;
+      const payload = {
+        provider,
+        branch: $("deployBranch").value.trim() || "main",
+        output_dir: $("deployOutputDir").value.trim()
+      };
+      if (provider === "cloudflare") {
+        const bc = $("deployBuildCommand").value.trim();
+        if (bc) payload.build_command = bc;
+      }
       const data = await api(`/api/projects/${selectedProjectId}/deploy`, {
         method: "POST",
         headers: { "Idempotency-Key": (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, "") },
-        body: JSON.stringify({ provider: $("deployProvider").value, branch: $("deployBranch").value.trim() || "main", output_dir: $("deployOutputDir").value.trim() })
+        body: JSON.stringify(payload)
       });
       await loadDeploymentHistory();
       showNotice(`Deployment request submitted to ${data.deployment.provider}. Check deployment history for status.`);
