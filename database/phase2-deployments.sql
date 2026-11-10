@@ -1,5 +1,6 @@
 -- DevNexa Cloud Phase 2: multi-provider deployment foundation
 -- Run once in Neon SQL Editor. Additive migration; preserves all existing data.
+-- NOTE: Netlify included from the start (was previously added in phase0-hardening).
 
 CREATE TABLE IF NOT EXISTS provider_connections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -15,7 +16,7 @@ CREATE TABLE IF NOT EXISTS provider_connections (
   UNIQUE(user_id, provider)
 );
 
--- Upgrade existing Phase 2 installations to accept Netlify account connections.
+-- Idempotent upgrade for existing installs that had the 2-provider check.
 ALTER TABLE provider_connections DROP CONSTRAINT IF EXISTS provider_connections_provider_check;
 ALTER TABLE provider_connections
   ADD CONSTRAINT provider_connections_provider_check
@@ -28,7 +29,7 @@ CREATE TABLE IF NOT EXISTS deployments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  provider TEXT NOT NULL CHECK (provider IN ('vercel', 'cloudflare')),
+  provider TEXT NOT NULL CHECK (provider IN ('vercel', 'cloudflare', 'netlify')),
   provider_project_id TEXT,
   provider_project_name TEXT,
   provider_deployment_id TEXT,
@@ -42,7 +43,17 @@ CREATE TABLE IF NOT EXISTS deployments (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Idempotent upgrade for existing installs.
+ALTER TABLE deployments DROP CONSTRAINT IF EXISTS deployments_provider_check;
+ALTER TABLE deployments ADD CONSTRAINT deployments_provider_check
+  CHECK (provider IN ('vercel', 'cloudflare', 'netlify'));
+
 CREATE INDEX IF NOT EXISTS deployments_project_idx
   ON deployments(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS deployments_user_idx
   ON deployments(user_id, created_at DESC);
+
+-- Idempotency support (was in phase0-hardening).
+ALTER TABLE deployments ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS deployments_idempotency_idx
+  ON deployments(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
