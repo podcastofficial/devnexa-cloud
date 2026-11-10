@@ -15,26 +15,41 @@
 
   $("agentGenerateBtn").addEventListener("click", async () => {
     const prompt = $("agentPrompt").value.trim();
-    if (prompt.length < 10) return lib().showError("Please write a more detailed prompt.");
+    if (prompt.length < 5) return lib().showError("Please write a prompt.");
 
     const btn = $("agentGenerateBtn");
     btn.disabled = true; 
-    btn.textContent = "Generating files (Please wait 20-30s)…";
-    $("agentResultLog").innerHTML = ""; 
+    btn.textContent = "Generating... Please wait";
+    $("agentResultLog").innerHTML = "<div class='muted small'>AI is thinking...</div>"; 
     lib().clearError();
     
     try {
-      const data = await lib().api("/api/agent/generate", {
-        method: "POST",
-        body: JSON.stringify({ prompt })
-      });
+      // Timeout set kiya taaki request atak na jaye
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 seconds timeout
 
-      $("agentResultLog").innerHTML = "";
-      
-      if (!data.files || data.files.length === 0) {
-        throw new Error("AI did not return any files. Try a different prompt.");
+      const response = await fetch("/api/agent/generate", {
+        method: "POST",
+        headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${sessionStorage.getItem("devnexa_session")}`
+        },
+        body: JSON.stringify({ prompt }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Server error occurred");
       }
 
+      if (!data.files || data.files.length === 0) {
+        throw new Error("AI returned empty files.");
+      }
+
+      $("agentResultLog").innerHTML = "";
       data.files.forEach(file => {
         const div = document.createElement("div");
         div.className = "ai-msg assistant";
@@ -55,9 +70,14 @@
         $("agentResultLog").append(div);
       });
 
-      lib().showNotice("Code generated successfully! Check below.");
+      lib().showNotice("Code generated successfully!");
     } catch (e) {
-      lib().showError(e.message);
+      if (e.name === 'AbortError') {
+        lib().showError("Request timed out. The AI is taking too long (Vercel 10s limit). Please try a shorter prompt.");
+      } else {
+        lib().showError(e.message);
+      }
+      $("agentResultLog").innerHTML = ""; 
     } finally {
       btn.disabled = false; 
       btn.textContent = "Generate Code";
