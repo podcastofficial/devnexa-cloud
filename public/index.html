@@ -94,7 +94,8 @@
           </div>
           <div class="deploy-panel">
             <p class="eyebrow">DEPLOYMENT</p><h4>Deploy this project</h4>
-            <label>Hosting provider<select id="deployProvider"><option value="vercel">Vercel</option><option value="cloudflare">Cloudflare Pages</option></select></label>
+            <label>Hosting provider<select id="deployProvider"><option value="vercel">Vercel</option><option value="cloudflare">Cloudflare Pages</option><option value="netlify">Netlify (static files)</option></select></label>
+            <label>Output folder (optional)<input id="deployOutputDir" maxlength="100" placeholder="e.g. public or dist — empty = repo root"></label>
             <label>Git branch<input id="deployBranch" value="main" maxlength="120" placeholder="main"></label>
             <button class="primary full" id="deployProjectBtn" type="button">Deploy project</button>
             <div id="deploymentHistory" class="deployment-history"></div>
