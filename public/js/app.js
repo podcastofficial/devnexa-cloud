@@ -173,7 +173,8 @@
     }
     data.providers.forEach(item => {
       const row = document.createElement("div"); row.className = "provider-row";
-      const label = document.createElement("span"); label.textContent = `${item.provider === "vercel" ? "Vercel" : "Cloudflare Pages"} · ${item.account_label || "Connected"}`;
+      const providerNames = { vercel: "Vercel", cloudflare: "Cloudflare Pages", netlify: "Netlify" };
+      const label = document.createElement("span"); label.textContent = `${providerNames[item.provider] || item.provider} · ${item.account_label || "Connected"}`;
       const btn = document.createElement("button"); btn.className = "text-btn"; btn.type = "button"; btn.textContent = "Disconnect";
       btn.addEventListener("click", async () => {
         if (!confirm(`Disconnect ${item.provider}?`)) return;
@@ -378,7 +379,7 @@
       await api("/api/providers/connect", { method: "POST", body: JSON.stringify({ provider, access_token, account_id }) });
       $("providerToken").value = "";
       await loadProviderConnections();
-      showNotice(`${provider === "vercel" ? "Vercel" : "Cloudflare Pages"} account connected securely.`);
+      showNotice(`${({ vercel: "Vercel", cloudflare: "Cloudflare Pages", netlify: "Netlify" })[provider]} account connected securely.`);
     } catch (e) { showError(e.message); }
     finally { button.disabled = false; button.textContent = "Connect provider"; }
   });
