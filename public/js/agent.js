@@ -23,25 +23,25 @@
     $("agentResultLog").innerHTML = "<div class='muted small'>AI is thinking...</div>"; 
     lib().clearError();
     
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 58000);
     try {
-      // Request bhej rahe hain
       const response = await fetch("/api/agent/generate", {
         method: "POST",
-        headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${sessionStorage.getItem("devnexa_session")}`
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${sessionStorage.getItem("devnexa_session")}`
         },
-        body: JSON.stringify({ prompt })
+        body: JSON.stringify({ prompt }),
+        signal: ctrl.signal
       });
 
-      // Agar Vercel ne crash kiya (500), toh text padhenge
       const textData = await response.text();
       let data;
       try {
         data = JSON.parse(textData);
       } catch (err) {
-        // Agar response JSON nahi hai (matlab server crash hua hai / timeout hua hai)
-        throw new Error(`Server crashed (Vercel Timeout). Try shorter prompt. Raw: ${textData.slice(0, 50)}`);
+        throw new Error(`Server error (${response.status}). Try a shorter prompt. ${textData.slice(0, 80)}`);
       }
 
       if (!response.ok) {
@@ -76,9 +76,10 @@
 
       lib().showNotice("Code generated successfully!");
     } catch (e) {
-      lib().showError(e.message);
+      lib().showError(e.name === "AbortError" ? "Request timed out. Try a shorter prompt." : e.message);
       $("agentResultLog").innerHTML = ""; 
     } finally {
+      clearTimeout(timer);
       btn.disabled = false; 
       btn.textContent = "Generate Code";
     }
