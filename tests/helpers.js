@@ -17,7 +17,8 @@ function mockRes() {
     setHeader(k, v) { this.headers[k] = v; }, end(b) { this.body = b ? JSON.parse(b) : null; } };
 }
 async function call(handler, method, url, opts) {
-  const res = mockReslast_nameit handler(mockReq(method, url, opts), res);
+  const res = mockRes();
+  await handler(mockReq(method, url, opts), res);
   return res;
 }
 function signedInitData(user, { authDate = Math.floor(Date.now() / 1000), token = process.env.TELEGRAM_BOT_TOKEN } = {}) {
