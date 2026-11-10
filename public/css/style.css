@@ -73,3 +73,25 @@ footer span{color:#4e9cba;margin:0 5px}
 [hidden]{display:none!important}
 @media(min-width:600px){.stats.four{grid-template-columns:repeat(4,minmax(0,1fr))}.hero{padding-top:48px}}
 @media(max-width:380px){.shell{padding-left:14px;padding-right:14px}.section-head{align-items:flex-start;flex-wrap:wrap}.project-card{align-items:flex-start;flex-direction:column}.project-actions{width:100%;justify-content:space-between}}
+
+
+/* GitHub integration, profile and project details */
+.top-actions{display:flex;align-items:center;gap:9px}
+.small-button{min-height:34px;padding:7px 10px;font-size:11px}
+.feature-panel{margin-top:18px;scroll-margin-top:12px}
+.profile-summary{display:flex;align-items:center;gap:13px;padding:12px 0 18px}
+.profile-summary strong{font-size:16px}
+.profile-summary p{margin:3px 0 0}
+.github-connect-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);padding-top:16px}
+.github-connect-row p{margin:4px 0 0}
+.detail-btn{min-height:35px;padding:8px 10px;font-size:11px}
+.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:8px 0 18px}
+.detail-grid>div{display:grid;gap:5px;min-width:0}
+.detail-grid strong{font-size:13px;text-transform:capitalize;overflow-wrap:anywhere}
+.detail-grid p{margin:0;font-size:13px;overflow-wrap:anywhere}
+.detail-wide{grid-column:1/-1}
+.repo-picker{border-top:1px solid var(--line);padding-top:16px;display:grid;gap:12px}
+@media(max-width:420px){
+  .project-actions{flex-wrap:wrap;justify-content:flex-start}
+  .github-connect-row{align-items:flex-start;flex-direction:column}
+}
