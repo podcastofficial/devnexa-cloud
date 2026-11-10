@@ -31,17 +31,18 @@
           <div class="avatar" id="avatar">D</div>
         </div>
         <div class="stats">
-          <article class="stat-card"><span class="muted small">Projects</span><strong id="projectCount">0</strong><span class="muted tiny" id="projectLimit">0 / 2 used</span></article>
+          <article class="stat-card"><span class="muted small">Projects</span><strong id="projectCount">0</strong><span class="muted tiny" id="projectLimit">0 / 2 used</span><span class="muted tiny" id="projectLimitText">Free plan project limit</span></article>
           <article class="stat-card"><span class="muted small">Current plan</span><strong id="planName">Free</strong><span class="muted tiny">Starter workspace</span></article>
         </div>
 
         <div class="section-head"><div><p class="eyebrow">WORKSPACE</p><h2>Your projects</h2></div><button class="primary" id="newProjectBtn">＋ New project</button></div>
         <div id="projects" class="project-list"></div>
+        <div id="noticeBox" class="flash success" role="status" hidden></div>
 
         <section class="panel create-panel" id="createPanel" hidden>
           <div class="section-head"><h3>Create a project</h3><button class="icon-btn" id="closeCreate" aria-label="Close">✕</button></div>
           <form id="projectForm">
-            <label>Project name<input name="name" minlength="2" maxlength="50" placeholder="My Telegram Bot" required></label>
+            <label>Project name<input id="projectName" name="name" minlength="2" maxlength="50" placeholder="My Telegram Bot" required></label>
             <label>Project type
               <select name="project_type">
                 <option value="website">Website</option>
@@ -53,7 +54,7 @@
             </label>
             <label>GitHub repository URL <span class="muted">(optional)</span><input name="github_repo" type="url" placeholder="https://github.com/username/repository"></label>
             <label>Description <textarea name="description" maxlength="500" rows="3" placeholder="What are you building?"></textarea></label>
-            <button class="primary full" type="submit">Create project</button>
+            <button class="primary full" id="createProjectBtn" type="submit">Create project</button>
           </form>
         </section>
         <p class="notice">Phase 1 preview: project management is active. Deployment, VPS and database provisioning will be added in later phases.</p>
