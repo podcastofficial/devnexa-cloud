@@ -45,7 +45,10 @@ test("validators", () => {
   assert.equal(v.validGitHubRepo("https://github.com/a/b"), "https://github.com/a/b");
   assert.equal(v.validGitHubRepo("https://evil.com/a/b"), false);
   assert.equal(v.validBranch("feat/x"), "feat/x");
-  assert.equal(v.validBranch("a..b"), "main");
+  assert.throws(() => v.validBranch("a..b"), /malformed/);
+  assert.throws(() => v.validBranch("a b"), /invalid characters/);
+  assert.throws(() => v.validBranch("a".repeat(121)), /too long/);
+  assert.equal(v.validBranch(""), "main");
   assert.equal(v.validDir("dist/"), "dist");
   assert.equal(v.validDir("../etc"), false);
   assert.equal(v.validDir(""), "");
