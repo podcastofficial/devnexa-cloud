@@ -195,7 +195,7 @@
       data.deployments.forEach(d => {
         const row = document.createElement("div"); row.className = "deployment-row";
         const details = document.createElement("div");
-        const title = document.createElement("strong"); title.textContent = `${d.provider === "vercel" ? "Vercel" : "Cloudflare Pages"} · ${d.status}`;
+        const title = document.createElement("strong"); title.textContent = `${({ vercel: "Vercel", cloudflare: "Cloudflare Pages", netlify: "Netlify" })[d.provider] || d.provider} · ${d.status}`;
         const meta = document.createElement("p"); meta.className = "muted tiny"; meta.textContent = `${d.branch} · ${new Date(d.created_at).toLocaleString()}`;
         details.append(title, meta);
         const actions = document.createElement("div"); actions.className = "deployment-actions";
@@ -391,7 +391,8 @@
     try {
       const data = await api(`/api/projects/${selectedProjectId}/deploy`, {
         method: "POST",
-        body: JSON.stringify({ provider: $("deployProvider").value, branch: $("deployBranch").value.trim() || "main" })
+        headers: { "Idempotency-Key": (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, "") },
+        body: JSON.stringify({ provider: $("deployProvider").value, branch: $("deployBranch").value.trim() || "main", output_dir: $("deployOutputDir").value.trim() })
       });
       await loadDeploymentHistory();
       showNotice(`Deployment request submitted to ${data.deployment.provider}. Check deployment history for status.`);
