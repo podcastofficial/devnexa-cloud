@@ -117,6 +117,63 @@ function decryptGitHubToken(row) {
   ]).toString("utf8");
 }
 
+function getProviderEncryptionKey() {
+  const raw = process.env.PROVIDER_TOKEN_ENCRYPTION_KEY || process.env.GITHUB_TOKEN_ENCRYPTION_KEY || "";
+  let key;
+  try { key = Buffer.from(raw, "base64"); } catch { key = Buffer.alloc(0); }
+  if (key.length !== 32) throw new Error("PROVIDER_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key");
+  return key;
+}
+
+function encryptProviderToken(token) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", getProviderEncryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
+  return { encrypted: encrypted.toString("base64"), iv: iv.toString("base64"), tag: cipher.getAuthTag().toString("base64") };
+}
+
+function decryptProviderToken(row) {
+  const decipher = crypto.createDecipheriv("aes-256-gcm", getProviderEncryptionKey(), Buffer.from(row.token_iv, "base64"));
+  decipher.setAuthTag(Buffer.from(row.token_tag, "base64"));
+  return Buffer.concat([decipher.update(Buffer.from(row.encrypted_access_token, "base64")), decipher.final()]).toString("utf8");
+}
+
+async function providerRequest(provider, path, token, options = {}) {
+  const base = provider === "vercel" ? "https://api.vercel.com" : "https://api.cloudflare.com/client/v4";
+  const response = await fetch(`${base}${path}`, {
+    ...options,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/json",
+      ...(options.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {})
+    }
+  });
+  const data = await response.json().catch(() => ({}));
+  const ok = provider === "cloudflare" ? response.ok && data.success !== false : response.ok;
+  if (!ok) {
+    const message = provider === "cloudflare"
+      ? (data.errors || []).map(x => x.message).join("; ") || `Cloudflare API error (${response.status})`
+      : data.error?.message || data.message || `Vercel API error (${response.status})`;
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
+  return provider === "cloudflare" ? data.result : data;
+}
+
+function safeProviderProjectName(name, projectId) {
+  const base = String(name || "project").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 35) || "project";
+  return `${base}-${String(projectId).replace(/-/g, "").slice(0, 6)}`.slice(0, 58);
+}
+
+function parseGitHubRepo(url) {
+  const parsed = new URL(url);
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  if (parsed.hostname !== "github.com" || parts.length < 2) throw new Error("Connect a GitHub repository before deploying.");
+  return { owner: parts[0], repo: parts[1].replace(/\.git$/, "") };
+}
+
 async function githubApi(path, accessToken, options = {}) {
   const response = await fetch(`https://api.github.com${path}`, {
     ...options,
@@ -399,6 +456,200 @@ module.exports = async function handler(req, res) {
       await sql`DELETE FROM github_connections WHERE user_id = ${user.id}`;
       await audit(user.id, "github.disconnected", "github_account", rows[0] ? String(rows[0].github_user_id) : null);
       return send(res, 200, { ok: true });
+    }
+
+
+    // Multi-provider account connections. Provider API tokens are encrypted at rest.
+    if (method === "GET" && path === "/api/providers") {
+      const rows = await sql`
+        SELECT provider, account_id, account_label, created_at, updated_at
+        FROM provider_connections WHERE user_id = ${user.id}
+        ORDER BY provider
+      `;
+      return send(res, 200, { providers: rows });
+    }
+
+    if (method === "POST" && path === "/api/providers/connect") {
+      const body = await readBody(req);
+      const provider = body.provider;
+      const accessToken = typeof body.access_token === "string" ? body.access_token.trim() : "";
+      const accountId = typeof body.account_id === "string" ? body.account_id.trim() : null;
+      if (!["vercel", "cloudflare"].includes(provider)) return send(res, 400, { error: "Choose Vercel or Cloudflare Pages." });
+      if (accessToken.length < 12 || accessToken.length > 5000) return send(res, 400, { error: "Enter a valid provider API token." });
+      let accountLabel = null;
+      if (provider === "vercel") {
+        const identity = await providerRequest("vercel", "/v2/user", accessToken);
+        accountLabel = identity.user?.username || identity.user?.email || "Vercel account";
+      } else {
+        if (!accountId || !/^[a-f0-9]{32}$/i.test(accountId)) return send(res, 400, { error: "Cloudflare Account ID must be 32 hexadecimal characters." });
+        const verify = await providerRequest("cloudflare", "/user/tokens/verify", accessToken);
+        if (verify.status !== "active") return send(res, 400, { error: "Cloudflare API token is not active." });
+        accountLabel = `Cloudflare account ${accountId.slice(0, 8)}…`;
+      }
+      const encrypted = encryptProviderToken(accessToken);
+      await sql`
+        INSERT INTO provider_connections
+          (user_id, provider, account_id, account_label, encrypted_access_token, token_iv, token_tag, updated_at)
+        VALUES (${user.id}, ${provider}, ${accountId}, ${accountLabel}, ${encrypted.encrypted}, ${encrypted.iv}, ${encrypted.tag}, NOW())
+        ON CONFLICT (user_id, provider) DO UPDATE SET
+          account_id = EXCLUDED.account_id,
+          account_label = EXCLUDED.account_label,
+          encrypted_access_token = EXCLUDED.encrypted_access_token,
+          token_iv = EXCLUDED.token_iv,
+          token_tag = EXCLUDED.token_tag,
+          updated_at = NOW()
+      `;
+      await audit(user.id, "provider.connected", "provider", provider, { account_label: accountLabel });
+      return send(res, 200, { ok: true, provider, account_label: accountLabel });
+    }
+
+    if (method === "POST" && path === "/api/providers/disconnect") {
+      const body = await readBody(req);
+      if (!["vercel", "cloudflare"].includes(body.provider)) return send(res, 400, { error: "Invalid provider." });
+      await sql`DELETE FROM provider_connections WHERE user_id = ${user.id} AND provider = ${body.provider}`;
+      await audit(user.id, "provider.disconnected", "provider", body.provider);
+      return send(res, 200, { ok: true });
+    }
+
+    const deployMatch = path.match(/^\/api\/projects\/([0-9a-f-]{36})\/deploy$/i);
+    if (method === "POST" && deployMatch) {
+      const body = await readBody(req);
+      const provider = body.provider;
+      if (!["vercel", "cloudflare"].includes(provider)) return send(res, 400, { error: "Choose Vercel or Cloudflare Pages." });
+      const projectRows = await sql`
+        SELECT id, name, github_repo FROM projects
+        WHERE id = ${deployMatch[1]} AND user_id = ${user.id} AND deleted_at IS NULL LIMIT 1
+      `;
+      if (!projectRows.length) return send(res, 404, { error: "Project not found." });
+      if (!projectRows[0].github_repo) return send(res, 400, { error: "Connect a GitHub repository to this project first." });
+      const connections = await sql`
+        SELECT provider, account_id, encrypted_access_token, token_iv, token_tag
+        FROM provider_connections WHERE user_id = ${user.id} AND provider = ${provider} LIMIT 1
+      `;
+      if (!connections.length) return send(res, 409, { error: `Connect your ${provider === "vercel" ? "Vercel" : "Cloudflare Pages"} account in Profile first.` });
+      const connection = connections[0];
+      const providerToken = decryptProviderToken(connection);
+      const repo = parseGitHubRepo(projectRows[0].github_repo);
+      const branch = typeof body.branch === "string" && /^[A-Za-z0-9._/-]{1,120}$/.test(body.branch) ? body.branch : "main";
+      const providerProjectName = safeProviderProjectName(projectRows[0].name, projectRows[0].id);
+      let externalProjectId = null;
+      let externalDeploymentId = null;
+      let deploymentUrl = null;
+      let metadata = {};
+
+      if (provider === "vercel") {
+        // Vercel must already have the GitHub App installed for this repository.
+        const ghRows = await sql`SELECT encrypted_access_token, token_iv, token_tag FROM github_connections WHERE user_id = ${user.id} LIMIT 1`;
+        if (!ghRows.length) return send(res, 409, { error: "Connect GitHub first." });
+        const ghToken = decryptGitHubToken(ghRows[0]);
+        const ghRepo = await githubApi(`/repos/${repo.owner}/${repo.repo}`, ghToken);
+        const ghCommit = await githubApi(`/repos/${repo.owner}/${repo.repo}/commits/${encodeURIComponent(branch)}`, ghToken);
+        const existing = await providerRequest("vercel", `/v9/projects/${encodeURIComponent(providerProjectName)}`, providerToken).catch(e => e.status === 404 ? null : Promise.reject(e));
+        const vProject = existing || await providerRequest("vercel", "/v10/projects", providerToken, {
+          method: "POST",
+          body: JSON.stringify({
+            name: providerProjectName,
+            framework: null,
+            gitRepository: { type: "github", repo: `${repo.owner}/${repo.repo}` }
+          })
+        });
+        externalProjectId = vProject.id || vProject.project?.id || null;
+        const created = await providerRequest("vercel", "/v13/deployments", providerToken, {
+          method: "POST",
+          body: JSON.stringify({
+            name: providerProjectName,
+            project: externalProjectId || providerProjectName,
+            target: "production",
+            gitSource: { type: "vercel", repoId: String(ghRepo.id), sha: ghCommit.sha },
+            gitMetadata: { remoteUrl: `https://github.com/${repo.owner}/${repo.repo}`, commitRef: branch, commitSha: ghCommit.sha }
+          })
+        });
+        externalDeploymentId = created.id || null;
+        deploymentUrl = created.url ? `https://${created.url}` : null;
+        metadata = { provider_state: created.readyState || created.status || "QUEUED", repo: `${repo.owner}/${repo.repo}` };
+      } else {
+        const accountId = connection.account_id;
+        const projectPath = `/accounts/${accountId}/pages/projects/${encodeURIComponent(providerProjectName)}`;
+        let cfProject = await providerRequest("cloudflare", projectPath, providerToken).catch(e => e.status === 404 ? null : Promise.reject(e));
+        if (!cfProject) {
+          cfProject = await providerRequest("cloudflare", `/accounts/${accountId}/pages/projects`, providerToken, {
+            method: "POST",
+            body: JSON.stringify({
+              name: providerProjectName,
+              production_branch: branch,
+              source: { type: "github", config: { owner: repo.owner, repo_name: repo.repo, production_branch: branch, pr_comments_enabled: false, production_deployments_enabled: true, preview_deployment_setting: "all" } },
+              build_config: { build_command: null, destination_dir: "dist", root_dir: "" }
+            })
+          });
+        }
+        externalProjectId = cfProject.id || cfProject.name || providerProjectName;
+        const form = new FormData();
+        form.set("branch", branch);
+        form.set("commit_dirty", "false");
+        const cfDeployment = await providerRequest("cloudflare", `/accounts/${accountId}/pages/projects/${encodeURIComponent(providerProjectName)}/deployments`, providerToken, {
+          method: "POST", body: form
+        });
+        externalDeploymentId = cfDeployment.id || null;
+        deploymentUrl = cfDeployment.url || (cfProject.subdomain ? `https://${cfProject.subdomain}.pages.dev` : null);
+        metadata = { provider_state: cfDeployment.latest_stage?.status || "queued", repo: `${repo.owner}/${repo.repo}` };
+      }
+
+      const statusRaw = String(metadata.provider_state || "queued").toLowerCase();
+      const status = ["ready", "success"].includes(statusRaw) ? "ready" : ["error", "failed"].includes(statusRaw) ? "error" : "queued";
+      const inserted = await sql`
+        INSERT INTO deployments
+          (user_id, project_id, provider, provider_project_id, provider_project_name,
+           provider_deployment_id, deployment_url, branch, status, provider_metadata)
+        VALUES (${user.id}, ${projectRows[0].id}, ${provider}, ${externalProjectId}, ${providerProjectName},
+                ${externalDeploymentId}, ${deploymentUrl}, ${branch}, ${status}, ${JSON.stringify(metadata)}::jsonb)
+        RETURNING id, provider, provider_project_name, provider_deployment_id, deployment_url, branch, status, created_at
+      `;
+      await sql`UPDATE projects SET status = ${status === "ready" ? "live" : status === "error" ? "failed" : "deploying"}, updated_at = NOW() WHERE id = ${projectRows[0].id}`;
+      await audit(user.id, "deployment.started", "deployment", inserted[0].id, { provider, branch, repo: `${repo.owner}/${repo.repo}` });
+      return send(res, 201, { deployment: inserted[0] });
+    }
+
+    const deploymentListMatch = path.match(/^\/api\/projects\/([0-9a-f-]{36})\/deployments$/i);
+    if (method === "GET" && deploymentListMatch) {
+      const owned = await sql`SELECT id FROM projects WHERE id = ${deploymentListMatch[1]} AND user_id = ${user.id} AND deleted_at IS NULL LIMIT 1`;
+      if (!owned.length) return send(res, 404, { error: "Project not found." });
+      const rows = await sql`
+        SELECT id, provider, provider_project_name, provider_deployment_id, deployment_url, branch, status, error_message, created_at, updated_at
+        FROM deployments WHERE project_id = ${deploymentListMatch[1]} AND user_id = ${user.id}
+        ORDER BY created_at DESC LIMIT 20
+      `;
+      return send(res, 200, { deployments: rows });
+    }
+
+    const refreshDeploymentMatch = path.match(/^\/api\/deployments\/([0-9a-f-]{36})\/refresh$/i);
+    if (method === "POST" && refreshDeploymentMatch) {
+      const rows = await sql`
+        SELECT d.*, pc.account_id, pc.encrypted_access_token, pc.token_iv, pc.token_tag
+        FROM deployments d JOIN provider_connections pc
+          ON pc.user_id = d.user_id AND pc.provider = d.provider
+        WHERE d.id = ${refreshDeploymentMatch[1]} AND d.user_id = ${user.id} LIMIT 1
+      `;
+      if (!rows.length) return send(res, 404, { error: "Deployment or provider connection not found." });
+      const d = rows[0];
+      const providerToken = decryptProviderToken(d);
+      let external;
+      if (d.provider === "vercel") {
+        external = await providerRequest("vercel", `/v13/deployments/${encodeURIComponent(d.provider_deployment_id)}`, providerToken);
+      } else {
+        external = await providerRequest("cloudflare", `/accounts/${d.account_id}/pages/projects/${encodeURIComponent(d.provider_project_name)}/deployments/${encodeURIComponent(d.provider_deployment_id)}`, providerToken);
+      }
+      const raw = String(external.readyState || external.status || external.latest_stage?.status || "unknown").toLowerCase();
+      const status = ["ready", "success"].includes(raw) ? "ready" : ["error", "failed"].includes(raw) ? "error" : ["canceled", "cancelled"].includes(raw) ? "canceled" : ["building", "active", "in_progress"].includes(raw) ? "building" : "queued";
+      const urlValue = external.url ? (String(external.url).startsWith("http") ? external.url : `https://${external.url}`) : external.deployment_url || d.deployment_url;
+      const updated = await sql`
+        UPDATE deployments SET status = ${status}, deployment_url = ${urlValue},
+          error_message = ${status === "error" ? (external.errorMessage || external.latest_stage?.name || "Provider build failed") : null},
+          provider_metadata = ${JSON.stringify({ provider_state: raw })}::jsonb, updated_at = NOW()
+        WHERE id = ${d.id}
+        RETURNING id, provider, deployment_url, branch, status, error_message, updated_at
+      `;
+      await sql`UPDATE projects SET status = ${status === "ready" ? "live" : status === "error" ? "failed" : "deploying"}, updated_at = NOW() WHERE id = ${d.project_id}`;
+      return send(res, 200, { deployment: updated[0] });
     }
 
     const projectDetailMatch = path.match(/^\/api\/projects\/([0-9a-f-]{36})$/i);
