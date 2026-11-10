@@ -8,6 +8,7 @@ const authedRoutes = [
   github.authed,
   require("../routes/providers"),
   require("../routes/deployments"),
+  require("../routes/ai"),
   require("../routes/projects"),
   require("../routes/admin")
 ];
@@ -22,7 +23,7 @@ module.exports = async function handler(req, res) {
 
     if (method === "GET" && path === "/api/health") {
       await sql`SELECT 1`;
-      return send(res, 200, { ok: true, service: "DevNexa Cloud API", phase: 2 });
+      return send(res, 200, { ok: true, service: "DevNexa Cloud API", phase: 3 });
     }
     if (method === "GET" && path === "/api/github/callback") return void (await github.callback(ctx));
     if (await require("../routes/auth")(ctx)) return;
