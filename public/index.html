@@ -13,6 +13,7 @@
     <header class="topbar">
       <div class="brand"><span class="brand-icon">☁</span><span>DevNexa <b>Cloud</b></span></div>
       <div class="top-actions">
+        <button class="secondary small-button" id="aiBtn" type="button">AI</button>
         <button class="secondary small-button" id="profileBtn" type="button">Profile</button>
         <span class="pill" id="planBadge">FREE PLAN</span>
       </div>
@@ -78,6 +79,25 @@
             </div>
           </div>
         </section>
+        <section class="panel feature-panel" id="aiPanel" hidden>
+          <div class="section-head"><div><p class="eyebrow">AI GATEWAY</p><h3>AI Assistant</h3></div><button class="icon-btn" id="closeAi" type="button" aria-label="Close">✕</button></div>
+          <p class="muted small" id="aiQuota">Loading usage…</p>
+          <label>Model source
+            <select id="aiMode"><option value="platform">Free models (limited)</option></select>
+          </label>
+          <div id="aiChatLog" class="ai-log" aria-live="polite"></div>
+          <label>Message<textarea id="aiInput" rows="3" maxlength="4000" placeholder="Ask about your code, errors or deployment…"></textarea></label>
+          <button class="primary full" id="aiSendBtn" type="button">Send</button>
+          <p class="muted tiny">Don't paste secrets (API keys, tokens, database URLs). Chats are not stored; only usage counts are.</p>
+          <div class="provider-setup">
+            <p class="eyebrow">BRING YOUR OWN KEY</p><h4>Use your own AI provider key</h4>
+            <label>Provider<select id="aiKeyProvider"></select></label>
+            <label>API key<input id="aiKeyInput" type="password" autocomplete="off" placeholder="Paste API key"></label>
+            <button class="secondary full" id="aiKeySaveBtn" type="button">Verify &amp; save key</button>
+            <div id="aiKeyList" class="provider-list"></div>
+            <p class="muted tiny">Keys are verified, encrypted on the server and never shown again. You pay your AI provider directly.</p>
+          </div>
+        </section>
         <section class="panel feature-panel" id="projectDetailPanel" hidden>
           <div class="section-head"><div><p class="eyebrow">PROJECT DETAILS</p><h3 id="detailProjectName">Project</h3></div><button class="icon-btn" id="closeDetails" type="button" aria-label="Close">✕</button></div>
           <div class="detail-grid">
@@ -129,5 +149,6 @@
     <footer>DevNexa Cloud <span>•</span> Build your future in the cloud</footer>
   </div>
   <script src="/js/app.js"></script>
+  <script src="/js/ai.js"></script>
 </body>
 </html>
