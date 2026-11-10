@@ -107,3 +107,10 @@ footer span{color:#4e9cba;margin:0 5px}
 .deployment-actions{display:flex;align-items:center;gap:10px;flex:0 0 auto}
 .deployment-actions a{color:#8fc3ff;font-size:12px;text-decoration:none}
 .deployment-actions button{font-size:11px}
+
+.provider-catalog { margin-top: 18px; }
+.provider-catalog-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.provider-catalog-item { display: flex; flex-direction: column; gap: 5px; padding: 11px 12px; border: 1px solid var(--border, #263247); border-radius: 12px; background: var(--surface-soft, rgba(255,255,255,.025)); min-width: 0; }
+.provider-catalog-item strong { font-size: 13px; }
+.provider-catalog-item span { font-size: 11px; color: var(--muted, #8b98ad); }
+@media (max-width: 420px) { .provider-catalog-grid { grid-template-columns: 1fr; } }
