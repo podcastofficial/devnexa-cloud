@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS provider_connections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  provider TEXT NOT NULL CHECK (provider IN ('vercel', 'cloudflare')),
+  provider TEXT NOT NULL CHECK (provider IN ('vercel', 'cloudflare', 'netlify')),
   account_id TEXT,
   account_label TEXT,
   encrypted_access_token TEXT NOT NULL,
@@ -14,6 +14,12 @@ CREATE TABLE IF NOT EXISTS provider_connections (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(user_id, provider)
 );
+
+-- Upgrade existing Phase 2 installations to accept Netlify account connections.
+ALTER TABLE provider_connections DROP CONSTRAINT IF EXISTS provider_connections_provider_check;
+ALTER TABLE provider_connections
+  ADD CONSTRAINT provider_connections_provider_check
+  CHECK (provider IN ('vercel', 'cloudflare', 'netlify'));
 
 CREATE INDEX IF NOT EXISTS provider_connections_user_idx
   ON provider_connections(user_id);
