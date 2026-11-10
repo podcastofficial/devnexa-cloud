@@ -104,6 +104,7 @@
       $("projectDetailPanel").hidden = false;
       $("profilePanel").hidden = true;
       await loadGitHubReposIntoSelect();
+      await loadDeploymentHistory();
       $("projectDetailPanel").scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
       showError(e.message);
@@ -160,6 +161,51 @@
     } catch (e) {
       placeholder.textContent = e.message;
     }
+  }
+
+
+  async function loadProviderConnections() {
+    const data = await api("/api/providers");
+    const list = $("providerList");
+    list.replaceChildren();
+    if (!data.providers.length) {
+      const p = document.createElement("p"); p.className = "muted small"; p.textContent = "No hosting providers connected yet."; list.append(p); return;
+    }
+    data.providers.forEach(item => {
+      const row = document.createElement("div"); row.className = "provider-row";
+      const label = document.createElement("span"); label.textContent = `${item.provider === "vercel" ? "Vercel" : "Cloudflare Pages"} · ${item.account_label || "Connected"}`;
+      const btn = document.createElement("button"); btn.className = "text-btn"; btn.type = "button"; btn.textContent = "Disconnect";
+      btn.addEventListener("click", async () => {
+        if (!confirm(`Disconnect ${item.provider}?`)) return;
+        try { await api("/api/providers/disconnect", { method: "POST", body: JSON.stringify({ provider: item.provider }) }); await loadProviderConnections(); showNotice(`${item.provider} disconnected.`); }
+        catch (e) { showError(e.message); }
+      });
+      row.append(label, btn); list.append(row);
+    });
+  }
+
+  async function loadDeploymentHistory() {
+    const box = $("deploymentHistory");
+    box.replaceChildren();
+    if (!selectedProjectId) return;
+    try {
+      const data = await api(`/api/projects/${selectedProjectId}/deployments`);
+      if (!data.deployments.length) { const p = document.createElement("p"); p.className = "muted small"; p.textContent = "No deployments yet."; box.append(p); return; }
+      data.deployments.forEach(d => {
+        const row = document.createElement("div"); row.className = "deployment-row";
+        const details = document.createElement("div");
+        const title = document.createElement("strong"); title.textContent = `${d.provider === "vercel" ? "Vercel" : "Cloudflare Pages"} · ${d.status}`;
+        const meta = document.createElement("p"); meta.className = "muted tiny"; meta.textContent = `${d.branch} · ${new Date(d.created_at).toLocaleString()}`;
+        details.append(title, meta);
+        const actions = document.createElement("div"); actions.className = "deployment-actions";
+        if (d.deployment_url) { const link = document.createElement("a"); link.href = d.deployment_url; link.target = "_blank"; link.rel = "noopener noreferrer"; link.textContent = "Open"; actions.append(link); }
+        if (d.status !== "ready" && d.status !== "error" && d.provider_deployment_id) {
+          const refresh = document.createElement("button"); refresh.className = "text-btn"; refresh.textContent = "Refresh";
+          refresh.addEventListener("click", async () => { refresh.disabled = true; try { await api(`/api/deployments/${d.id}/refresh`, { method: "POST", body: "{}" }); await loadDeploymentHistory(); } catch (e) { showError(e.message); } finally { refresh.disabled = false; } }); actions.append(refresh);
+        }
+        row.append(details, actions); box.append(row);
+      });
+    } catch (e) { const p = document.createElement("p"); p.className = "muted small"; p.textContent = e.message; box.append(p); }
   }
 
   async function loadProjects() {
@@ -264,7 +310,7 @@
     $("profileTelegram").textContent = currentUser.username ? `@${currentUser.username}` : "Telegram account";
     $("profileId").textContent = `Telegram ID: ${currentUser.telegram_id}`;
     $("profileAvatar").textContent = (currentUser.first_name || "D").slice(0, 1).toUpperCase();
-    try { await loadGitHubStatus(); } catch (e) { showError(e.message); }
+    try { await loadGitHubStatus(); await loadProviderConnections(); } catch (e) { showError(e.message); }
     $("profilePanel").scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
@@ -315,6 +361,41 @@
       showNotice(`Connected ${data.repository} to this project.`);
     } catch (e) { showError(e.message); }
     finally { button.disabled = false; button.textContent = "Connect selected repository"; }
+  });
+
+
+  $("providerChoice").addEventListener("change", () => {
+    $("cloudflareAccountWrap").hidden = $("providerChoice").value !== "cloudflare";
+  });
+  $("saveProviderBtn").addEventListener("click", async () => {
+    const button = $("saveProviderBtn");
+    const provider = $("providerChoice").value;
+    const access_token = $("providerToken").value.trim();
+    const account_id = $("cloudflareAccountId").value.trim();
+    if (!access_token) return showError("Paste your provider API token first.");
+    button.disabled = true; button.textContent = "Verifying…"; clearError();
+    try {
+      await api("/api/providers/connect", { method: "POST", body: JSON.stringify({ provider, access_token, account_id }) });
+      $("providerToken").value = "";
+      await loadProviderConnections();
+      showNotice(`${provider === "vercel" ? "Vercel" : "Cloudflare Pages"} account connected securely.`);
+    } catch (e) { showError(e.message); }
+    finally { button.disabled = false; button.textContent = "Connect provider"; }
+  });
+
+  $("deployProjectBtn").addEventListener("click", async () => {
+    if (!selectedProjectId) return;
+    const button = $("deployProjectBtn");
+    button.disabled = true; button.textContent = "Starting deployment…"; clearError();
+    try {
+      const data = await api(`/api/projects/${selectedProjectId}/deploy`, {
+        method: "POST",
+        body: JSON.stringify({ provider: $("deployProvider").value, branch: $("deployBranch").value.trim() || "main" })
+      });
+      await loadDeploymentHistory();
+      showNotice(`Deployment request submitted to ${data.deployment.provider}. Check deployment history for status.`);
+    } catch (e) { showError(e.message); }
+    finally { button.disabled = false; button.textContent = "Deploy project"; }
   });
 
   const githubResult = new URLSearchParams(location.search).get("github");
