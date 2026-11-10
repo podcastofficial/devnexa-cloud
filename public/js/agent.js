@@ -19,8 +19,8 @@
 
     const btn = $("agentGenerateBtn");
     btn.disabled = true; 
-    btn.textContent = "Generating files (wait ~10s)…";
-    $("agentResultLog").innerHTML = ""; // clear old results
+    btn.textContent = "Generating files (Please wait 20-30s)…";
+    $("agentResultLog").innerHTML = ""; 
     lib().clearError();
     
     try {
@@ -30,6 +30,11 @@
       });
 
       $("agentResultLog").innerHTML = "";
+      
+      if (!data.files || data.files.length === 0) {
+        throw new Error("AI did not return any files. Try a different prompt.");
+      }
+
       data.files.forEach(file => {
         const div = document.createElement("div");
         div.className = "ai-msg assistant";
@@ -43,7 +48,7 @@
         pre.style.marginTop = "5px";
         
         const code = document.createElement("code");
-        code.textContent = file.content; // textContent prevents XSS
+        code.textContent = file.content; 
         
         pre.appendChild(code);
         div.append(title, pre);
