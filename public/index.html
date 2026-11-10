@@ -85,6 +85,7 @@
           <label>Model source
             <select id="aiMode"><option value="platform">Free models (limited)</option></select>
           </label>
+          <label id="aiModelWrap" hidden>Model <span class="muted">(optional, your own key only)</span><input id="aiModelInput" maxlength="100" placeholder="empty = recommended default"></label>
           <div id="aiChatLog" class="ai-log" aria-live="polite"></div>
           <label>Message<textarea id="aiInput" rows="3" maxlength="4000" placeholder="Ask about your code, errors or deployment…"></textarea></label>
           <button class="primary full" id="aiSendBtn" type="button">Send</button>
