@@ -31,7 +31,7 @@ test("telegram login creates session; forged initData rejected", async () => {
 });
 
 test("ownership isolation: other user's project/deployments -> 404", async () => {
-  sql.setImpl(fakeSql([sessionRow])); // project queries return [] (not owned)
+  sql.setImpl(fakeSql([sessionRow]));
   for (const [m, p] of [["GET", `/api/projects/${PID}`], ["GET", `/api/projects/${PID}/deployments`], ["DELETE", `/api/projects/${PID}`]])
     assert.equal((await call(handler, m, p, { headers: authH })).statusCode, 404, p);
   const d = await call(handler, "POST", `/api/projects/${PID}/deploy`, { headers: authH, body: { provider: "netlify" } });
@@ -62,7 +62,7 @@ function deployFixtures(extra = []) {
   const conn = { provider: "netlify", account_id: "9", encrypted_access_token: enc.encrypted, token_iv: enc.iv, token_tag: enc.tag };
   return fakeSql([
     sessionRow,
-    [/FROM projects WHERE id/, [{ id: PID, name: "Demo", github_repo: "https://github.com/o/r" }]],
+    [/FROM projects WHERE id/, [{ id: PID, name: "Demo", github_repo: "https://github.com/o/r", default_branch: "main" }]],
     [/FROM provider_connections/, [conn]],
     [/FROM github_connections/, [conn]],
     [/INSERT INTO deployments/, [{ id: "d1", provider: "netlify", status: "building" }]],
@@ -79,7 +79,6 @@ test("deploy: provider 401 -> 409 reconnect message", async () => {
 });
 
 test("deploy: duplicate in-flight deploy returns existing, creates no new one", async () => {
-  const log = [];
   const f = deployFixtures([[/status IN \('queued','building'\)/, [{ id: "existing", status: "building" }]]]);
   sql.setImpl((s, ...v) => f(s, ...v));
   let fetched = 0; global.fetch = async () => { fetched++; return { ok: true, status: 200, json: async () => ({}) }; };
@@ -87,14 +86,27 @@ test("deploy: duplicate in-flight deploy returns existing, creates no new one", 
   assert.equal(r.statusCode, 200); assert.equal(r.body.duplicate, true); assert.equal(fetched, 0);
 });
 
-test("deploy: invalid output_dir / build command rejected", async () => {
+test("deploy: invalid output_dir rejected", async () => {
   sql.setImpl(deployFixtures());
   assert.equal((await call(handler, "POST", `/api/projects/${PID}/deploy`, { headers: authH, body: { provider: "netlify", output_dir: "../x" } })).statusCode, 400);
 });
 
+test("deploy: Netlify build_command rejected with helpful 400", async () => {
+  sql.setImpl(deployFixtures());
+  const r = await call(handler, "POST", `/api/projects/${PID}/deploy`, { headers: authH, body: { provider: "netlify", build_command: "npm run build" } });
+  assert.equal(r.statusCode, 400);
+  assert.match(r.body.error, /static files only/);
+});
+
+test("deploy: malformed branch rejected with 400 (no silent fallback)", async () => {
+  sql.setImpl(deployFixtures());
+  const r = await call(handler, "POST", `/api/projects/${PID}/deploy`, { headers: authH, body: { provider: "netlify", branch: "a..b" } });
+  assert.equal(r.statusCode, 400);
+  assert.match(r.body.error, /malformed/);
+});
+
 test("netlify deploy end-to-end (mocked): uploads only required files, maps state", async () => {
   sql.setImpl(deployFixtures());
-  const sha = require("node:crypto").createHash("sha1");
   const indexBody = Buffer.from("<h1>hi</h1>"), cssBody = Buffer.from("a{}");
   const calls = [];
   global.fetch = async (url, opts = {}) => {
@@ -135,4 +147,14 @@ test("netlify deploy: no index.html -> helpful 400", async () => {
   const r = await call(handler, "POST", `/api/projects/${PID}/deploy`, { headers: authH, body: { provider: "netlify" } });
   assert.equal(r.statusCode, 400);
   assert.match(r.body.error, /index\.html/);
+});
+
+test("cron cleanup requires CRON_SECRET", async () => {
+  sql.setImpl(fakeSql([]));
+  process.env.CRON_SECRET = "test-secret";
+  const noAuth = await call(handler, "GET", "/api/cron/cleanup");
+  assert.equal(noAuth.statusCode, 401);
+  const good = await call(handler, "GET", "/api/cron/cleanup", { headers: { authorization: "Bearer test-secret" } });
+  assert.equal(good.statusCode, 200);
+  delete process.env.CRON_SECRET;
 });
