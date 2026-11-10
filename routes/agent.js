@@ -9,8 +9,8 @@ module.exports = async function agentRoutes({ req, res, path, method, user }) {
     await rateLimitStrict(`agent:${user.id}`, 5, 60_000);
     const body = await readBody(req);
     
-    if (!body.prompt || typeof body.prompt !== "string" || body.prompt.length < 10) {
-      throw new HttpError(400, "Please provide a detailed prompt (at least 10 characters).");
+    if (!body.prompt || typeof body.prompt !== "string" || body.prompt.length < 5) {
+      throw new HttpError(400, "Please provide a detailed prompt.");
     }
 
     const projectId = body.project_id || null;
@@ -25,28 +25,23 @@ module.exports = async function agentRoutes({ req, res, path, method, user }) {
       RETURNING id`;
 
     try {
-      // Strict system prompt
       const systemPrompt = `You are a machine that ONLY outputs raw JSON. Do NOT output any text, markdown formatting, or backticks. 
 Output format must be exactly like this:
 [
-  {"path": "index.html", "content": "<html>...</html>"},
-  {"path": "style.css", "content": "body { ... }"}
+  {"path": "index.html", "content": "<html>...</html>"}
 ]
 Generate the files for this request: ${body.prompt}`;
 
-      // max_tokens badha diya taaki code cut na ho
+      // AI Call
       const aiResponse = await runChat(user, {
         messages: [{ role: "user", content: systemPrompt }],
         mode: "platform",
-        max_tokens: 3500 
+        max_tokens: 1500
       });
 
       let rawText = aiResponse.message.content.trim();
       
-      // Extra cleanup just in case AI ne markdown lagaya ho
-      rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-      
-      // Agar AI ne pehle koi text likha hai, toh sirf JSON array nikalne ki koshish karein
+      // Extract JSON array safely
       const startIdx = rawText.indexOf('[');
       const endIdx = rawText.lastIndexOf(']');
       if (startIdx !== -1 && endIdx !== -1) {
@@ -58,8 +53,8 @@ Generate the files for this request: ${body.prompt}`;
         files = JSON.parse(rawText);
         if (!Array.isArray(files)) throw new Error("Not an array");
       } catch (e) {
-        console.error("AI raw response was:", rawText);
-        throw new Error("AI returned an invalid format. Please try a shorter prompt.");
+        console.error("AI Format Error:", rawText); // Vercel logs ke liye
+        throw new Error("AI generated invalid format. Please try again.");
       }
 
       await sql`
@@ -76,6 +71,8 @@ Generate the files for this request: ${body.prompt}`;
         UPDATE ai_agent_tasks 
         SET status = 'failed', error_message = ${error.message}, updated_at = NOW()
         WHERE id = ${task.id}`;
+      
+      // Yahan hum asli error bhej rahe hain frontend ko
       throw new HttpError(500, error.message || "Failed to generate code.");
     }
   }
