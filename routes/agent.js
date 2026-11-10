@@ -6,7 +6,7 @@ const { runChat } = require("../lib/ai/gateway");
 
 module.exports = async function agentRoutes({ req, res, path, method, user }) {
   if (method === "POST" && path === "/api/agent/generate") {
-    await rateLimitStrict(`agent:${user.id}`, 5, 60_000); // Max 5 requests per minute
+    await rateLimitStrict(`agent:${user.id}`, 5, 60_000);
     const body = await readBody(req);
     
     if (!body.prompt || typeof body.prompt !== "string" || body.prompt.length < 10) {
@@ -19,38 +19,49 @@ module.exports = async function agentRoutes({ req, res, path, method, user }) {
       if (!p.length) throw new HttpError(404, "Project not found.");
     }
 
-    // 1. Create task in DB
     const [task] = await sql`
       INSERT INTO ai_agent_tasks (user_id, project_id, prompt, status)
       VALUES (${user.id}, ${projectId}, ${body.prompt}, 'processing')
       RETURNING id`;
 
     try {
-      // 2. Instruct AI to return strict JSON
-      const systemPrompt = `You are an expert full-stack developer. The user will give you a prompt. 
-You must generate the code files and return ONLY a valid JSON array. 
-Do not include markdown formatting, do not use \`\`\`json, just output the raw JSON array.
-Format: [{"path": "index.html", "content": "<html>...</html>"}, {"path": "style.css", "content": "body { ... }"}]
-User request: ${body.prompt}`;
+      // Strict system prompt
+      const systemPrompt = `You are a machine that ONLY outputs raw JSON. Do NOT output any text, markdown formatting, or backticks. 
+Output format must be exactly like this:
+[
+  {"path": "index.html", "content": "<html>...</html>"},
+  {"path": "style.css", "content": "body { ... }"}
+]
+Generate the files for this request: ${body.prompt}`;
 
+      // max_tokens badha diya taaki code cut na ho
       const aiResponse = await runChat(user, {
         messages: [{ role: "user", content: systemPrompt }],
-        mode: "platform"
+        mode: "platform",
+        max_tokens: 3500 
       });
 
-      let rawText = aiResponse.message.content;
-      // Cleanup in case AI still adds markdown
+      let rawText = aiResponse.message.content.trim();
+      
+      // Extra cleanup just in case AI ne markdown lagaya ho
       rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
       
+      // Agar AI ne pehle koi text likha hai, toh sirf JSON array nikalne ki koshish karein
+      const startIdx = rawText.indexOf('[');
+      const endIdx = rawText.lastIndexOf(']');
+      if (startIdx !== -1 && endIdx !== -1) {
+        rawText = rawText.substring(startIdx, endIdx + 1);
+      }
+
       let files = [];
       try {
         files = JSON.parse(rawText);
         if (!Array.isArray(files)) throw new Error("Not an array");
       } catch (e) {
-        throw new Error("AI returned invalid format. Please try again.");
+        console.error("AI raw response was:", rawText);
+        throw new Error("AI returned an invalid format. Please try a shorter prompt.");
       }
 
-      // 3. Update task in DB
       await sql`
         UPDATE ai_agent_tasks 
         SET status = 'completed', result_files = ${JSON.stringify(files)}::jsonb, updated_at = NOW()
