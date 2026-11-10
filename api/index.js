@@ -6,7 +6,7 @@ const github = require("../routes/github");
 
 const authedRoutes = [
   github.authed,
-  require("../routes/agent"), // <--- NAYA ROUTE ADD KIYA
+  require("../routes/agent"),
   require("../routes/providers"),
   require("../routes/deployments"),
   require("../routes/ai"),
@@ -53,8 +53,9 @@ module.exports = async function handler(req, res) {
     for (const route of authedRoutes) if (await route(ctx)) return;
     return send(res, 404, { error: "Route not found" });
   } catch (error) {
-    if (error instanceof HttpError || error.expose) return send(res, error.status || 400, { error: error.message });
+    // Yahan error log hoga taaki Vercel par asli error dikhe
     console.error("DevNexa API error:", error.message);
-    return send(res, 500, { error: "Internal server error" });
+    if (error instanceof HttpError || error.expose) return send(res, error.status || 400, { error: error.message });
+    return send(res, 500, { error: "Internal server error: " + error.message });
   }
 };
