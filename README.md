@@ -163,3 +163,30 @@ The callback completes in the browser opened by Telegram. Depending on Telegram/
 | POST | `/api/projects/:id/connect-repo` | Bearer | Attach selected public repository |
 
 GitHub connection stores an encrypted OAuth token server-side. The raw token is never returned to the frontend. This integration links repositories only; automatic builds/deployments are a separate Phase 2 feature.
+
+
+## Phase 0 / Netlify update
+
+### Run this migration (Neon SQL Editor, once)
+`database/phase0-hardening.sql` — allows `netlify` in `deployments.provider` and adds idempotency keys.
+
+### Code layout
+- `api/index.js` — thin router
+- `routes/` — auth, github, providers, deployments, projects, admin
+- `lib/` — http, db, crypto, telegram, auth, github, validate, ratelimit
+- `lib/providers/` — one adapter per provider (`verify`, `deploy`, `refresh`) + status normalization
+- `tests/` — `npm test` (Node built-in runner, no extra dependencies; DB and provider APIs are mocked)
+
+### Fixed
+- Cloudflare `failure` was shown as "queued"; a finished build stage was treated as "live" — now only the deploy stage counts.
+- Vercel `gitSource.type` corrected to `github` (+ `ref`).
+- Cloudflare build command / output folder are now configurable instead of hardcoded `dist`.
+- Invalid or expired provider tokens return clear 400/409 messages instead of 500.
+- Duplicate deploy protection (in-flight check + optional `Idempotency-Key` header).
+- In-memory rate limits on login, provider connect, deploy, refresh (per-instance only — move to a shared store before public launch).
+
+### Netlify deploy = direct static deploy
+Reads a public repo (optionally one folder such as `dist`/`public`) via the GitHub API and uploads it with Netlify's file-digest deploy. Requires `index.html`; limits: 150 files, 5 MB/file, 8 MB total. **No build step** — build-based deploys need the isolated worker (Phase 4).
+
+### Still unverified against live APIs (tested with mocks only)
+Run one real deploy per provider with a throwaway repo and token before calling any provider "supported".

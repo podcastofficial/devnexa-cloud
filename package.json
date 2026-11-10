@@ -6,7 +6,8 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "dev": "vercel dev",
-    "start": "node local-server.js"
+    "start": "node local-server.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2"
