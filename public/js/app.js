@@ -57,6 +57,13 @@
     const status = document.createElement("span");
     status.className = "status-tag";
     status.textContent = project.status;
+
+    const details = document.createElement("button");
+    details.className = "secondary detail-btn";
+    details.type = "button";
+    details.textContent = "Details";
+    details.addEventListener("click", () => openProjectDetails(project.id));
+
     const del = document.createElement("button");
     del.className = "delete-btn";
     del.type = "button";
@@ -76,9 +83,83 @@
         showError(e.message);
       }
     });
-    actions.append(status, del);
+    actions.append(status, details, del);
     el.append(info, actions);
     return el;
+  }
+
+  let selectedProjectId = null;
+
+  async function openProjectDetails(projectId) {
+    clearError();
+    try {
+      const data = await api(`/api/projects/${projectId}`);
+      const p = data.project;
+      selectedProjectId = p.id;
+      $("detailProjectName").textContent = p.name;
+      $("detailProjectType").textContent = p.project_type.replaceAll("_", " ");
+      $("detailProjectStatus").textContent = p.status;
+      $("detailProjectDescription").textContent = p.description || "No description";
+      $("detailRepo").textContent = p.github_repo || "Not connected";
+      $("projectDetailPanel").hidden = false;
+      $("profilePanel").hidden = true;
+      await loadGitHubReposIntoSelect();
+      $("projectDetailPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (e) {
+      showError(e.message);
+    }
+  }
+
+  async function loadGitHubStatus() {
+    const data = await api("/api/github/status");
+    const status = $("githubStatus");
+    if (data.connected) {
+      status.textContent = `Connected as @${data.account.github_login}`;
+      $("githubConnectBtn").textContent = "Reconnect GitHub";
+      $("githubDisconnectBtn").hidden = false;
+    } else {
+      status.textContent = "Not connected";
+      $("githubConnectBtn").textContent = "Connect GitHub";
+      $("githubDisconnectBtn").hidden = true;
+    }
+    return data.connected;
+  }
+
+  async function loadGitHubReposIntoSelect() {
+    const select = $("repoSelect");
+    select.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Loading repositories…";
+    select.append(placeholder);
+    try {
+      const connected = await loadGitHubStatus();
+      if (!connected) {
+        placeholder.textContent = "Connect GitHub from Profile first";
+        return;
+      }
+      const data = await api("/api/github/repos");
+      select.replaceChildren();
+      if (!data.repositories.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No public repositories found";
+        select.append(option);
+        return;
+      }
+      const first = document.createElement("option");
+      first.value = "";
+      first.textContent = "Select a repository";
+      select.append(first);
+      data.repositories.forEach(repo => {
+        const option = document.createElement("option");
+        option.value = repo.full_name;
+        option.textContent = `${repo.full_name} · ${repo.default_branch || "main"}`;
+        select.append(option);
+      });
+    } catch (e) {
+      placeholder.textContent = e.message;
+    }
   }
 
   async function loadProjects() {
@@ -173,6 +254,80 @@
       submitButton.classList.remove("is-loading");
     }
   });
+
+
+  $("profileBtn").addEventListener("click", async () => {
+    clearError();
+    $("projectDetailPanel").hidden = true;
+    $("profilePanel").hidden = false;
+    $("profileName").textContent = [currentUser.first_name, currentUser.last_name].filter(Boolean).join(" ") || "Developer";
+    $("profileTelegram").textContent = currentUser.username ? `@${currentUser.username}` : "Telegram account";
+    $("profileId").textContent = `Telegram ID: ${currentUser.telegram_id}`;
+    $("profileAvatar").textContent = (currentUser.first_name || "D").slice(0, 1).toUpperCase();
+    try { await loadGitHubStatus(); } catch (e) { showError(e.message); }
+    $("profilePanel").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  $("closeProfile").addEventListener("click", () => { $("profilePanel").hidden = true; });
+  $("closeDetails").addEventListener("click", () => { $("projectDetailPanel").hidden = true; });
+
+  $("githubConnectBtn").addEventListener("click", async () => {
+    clearError();
+    const button = $("githubConnectBtn");
+    button.disabled = true;
+    button.textContent = "Preparing…";
+    try {
+      const data = await api("/api/github/connect");
+      if (tg?.openLink) tg.openLink(data.authorize_url);
+      else window.location.href = data.authorize_url;
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Connect GitHub";
+    }
+  });
+
+  $("githubDisconnectBtn").addEventListener("click", async () => {
+    if (!confirm("Disconnect your GitHub account from DevNexa Cloud?")) return;
+    try {
+      await api("/api/github/disconnect", { method: "POST", body: "{}" });
+      await loadGitHubStatus();
+      await loadGitHubReposIntoSelect();
+      showNotice("GitHub account disconnected.");
+    } catch (e) { showError(e.message); }
+  });
+
+  $("connectRepoBtn").addEventListener("click", async () => {
+    if (!selectedProjectId) return;
+    const fullName = $("repoSelect").value;
+    if (!fullName) { showError("Select a GitHub repository first."); return; }
+    const button = $("connectRepoBtn");
+    button.disabled = true;
+    button.textContent = "Connecting…";
+    try {
+      const data = await api(`/api/projects/${selectedProjectId}/connect-repo`, {
+        method: "POST",
+        body: JSON.stringify({ full_name: fullName })
+      });
+      $("detailRepo").textContent = data.project.github_repo;
+      await loadProjects();
+      showNotice(`Connected ${data.repository} to this project.`);
+    } catch (e) { showError(e.message); }
+    finally { button.disabled = false; button.textContent = "Connect selected repository"; }
+  });
+
+  const githubResult = new URLSearchParams(location.search).get("github");
+  if (githubResult === "connected") {
+    history.replaceState({}, "", location.pathname);
+    setTimeout(() => {
+      showNotice("GitHub account connected. Open Profile to view your account and connect a repository.");
+      loadGitHubStatus().catch(() => {});
+    }, 500);
+  } else if (githubResult === "error") {
+    history.replaceState({}, "", location.pathname);
+    setTimeout(() => showError("GitHub connection failed or expired. Please try connecting again."), 500);
+  }
 
   $("logoutBtn").addEventListener("click", async () => {
     try { await api("/api/auth/logout", { method: "POST", body: "{}" }); } catch {}
