@@ -157,10 +157,34 @@ test("max_tokens is capped by plan in platform mode", async () => {
   sql.setImpl(fakeSql([sessionRow, [/INSERT INTO usage_ledger/, [{ id: 1 }]]]));
   let sent; global.fetch = async (u, init) => { sent = JSON.parse(init.body); return completion(); };
   await chat({ messages: msgs, max_tokens: 100000 });
-  assert.equal(sent.max_tokens, 800);
+  assert.equal(sent.max_completion_tokens, 800);
 });
 
 test("ai routes require authentication", async () => {
   sql.setImpl(fakeSql([]));
   assert.equal((await call(handler, "POST", "/api/ai/chat", { body: { messages: msgs } })).statusCode, 401);
+});
+
+test("groq payload: max_completion_tokens + low reasoning for gpt-oss; default model is not the retired llama", async () => {
+  sql.setImpl(fakeSql([sessionRow, [/INSERT INTO usage_ledger/, [{ id: 1 }]]]));
+  let sent; global.fetch = async (u, init) => { sent = JSON.parse(init.body); return completion(); };
+  await chat({ messages: msgs });
+  assert.equal(sent.model, "openai/gpt-oss-120b");
+  assert.equal(sent.max_completion_tokens, 600);
+  assert.equal(sent.max_tokens, undefined);
+  assert.equal(sent.reasoning_effort, "low");
+});
+
+test("empty model reply is treated as a provider failure and falls back", async () => {
+  sql.setImpl(fakeSql([sessionRow, [/INSERT INTO usage_ledger/, [{ id: 1 }]]]));
+  global.fetch = async url => String(url).includes("groq") ? completion("") : completion("gemini ok");
+  const r = await chat({ messages: msgs });
+  assert.equal(r.body.provider, "gemini");
+});
+
+test("BYOK accepts a custom model name", async () => {
+  sql.setImpl(byokFixtures());
+  let sent; global.fetch = async (u, init) => { sent = JSON.parse(init.body); return ok({ content: [{ type: "text", text: "x" }], usage: {} }); };
+  await chat({ mode: "byok", provider: "anthropic", model: "claude-sonnet-5-5", messages: msgs });
+  assert.equal(sent.model, "claude-sonnet-5-5");
 });
